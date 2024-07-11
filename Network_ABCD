@@ -1,0 +1,762 @@
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Scanner;
+
+/**
+ * Creates an ABCD back backpropagation network where A represents the input layer, B refers to the first hidden layer,
+ * C refers to the second hidden layer, and D refers to the output layer. In this class the network is initialized,
+ * the memory is allocated and allows the network to train or run without and activation and error calculations are
+ * used for end results. This networks also utilizes backpropagation to adjust weights and uses the sigmoid function
+ * and tries to reduce the errors and through the test cases put into a truth table allows to see the accuracy of the
+ * model. It also prints all parts of the network to allow for understanding as the model continues.
+ *
+ * Methods:
+ * configureNetwork()
+ * setTruthTable()
+ * allocateMemory()
+ * saveWeights()
+ * loadWeights()
+ * populate()
+ * randomize()
+ * echo()
+ * activationFunction()
+ * sigmoid()
+ * derivativeActivationFunction()
+ * derivativesigmoid()
+ * train()
+ * runForTraining()
+ * calculateAndApplyDeltaWeights()
+ * run()
+ * runTestCase()
+ * setupInputActivation()
+ * reportFinalOutputs()
+ * main()
+ *
+ * @author Rushil Jaiswal
+ * @version April 20th, 2024
+ *
+ */
+
+public class NetworkABCD_Submitted
+{
+   public double lambda;
+
+   public int numInputAct;
+   public int numHiddenFirstAct;
+   public int numHiddenSecondAct;
+   public int numOutputAct;
+   public int numConnectAct;
+   public int numLayers;
+
+   public double lowRand;
+   public double highRand;
+
+   public double maxIter;
+   public double avgErrorCutoff;
+   public int iter;
+   public boolean isTraining;
+
+   public double[][] expectedVals;
+   public double[][] actualVals;
+
+   public double[][] a;
+   public double[][][] weights;
+
+   public double[][] truthTable;
+
+   public double[][] psiValues;
+   public double[][] thetas;
+
+   public int numTestCases;
+
+   public String truthTableFile;
+
+   public String weightsFile;
+
+   public String WEIGHT_MODE;
+
+   public double avgError = 0.0;
+
+   public static double startTime = 0.0;
+   public static double endTime = 0.0;
+
+   static final int INPUT_LAYER = 0;
+   static final int HIDDEN_FIRST_LAYER = 1;
+   static final int HIDDEN_SECOND_LAYER = 2;
+   static final int OUTPUT_LAYER = 3;
+
+
+   /**
+    * Configures the parameters of the network by reading a file fed to it, and it goes through each of the lines and
+    * uses a hashmap for key value pairs for efficient retrieval and can assign the values to the variables from the file
+    * given. An error is thrown if there is not something on both sides of the equal sign as a variable and a value
+    * is needed. Only continues if there are more lines which means there would be # present.
+    */
+   public void configureNetwork(String configFile) throws IOException
+   {
+      File myObj = new File(configFile);
+      HashMap<String, String> configValues = new HashMap<>();
+
+      try (Scanner myReader = new Scanner(myObj))
+      {
+         while (myReader.hasNextLine())
+         {
+            String line = myReader.nextLine();
+
+            if (line.startsWith("#")) // makes sure there is a line it can continue with
+            {
+               continue;
+            }
+
+            String[] parts = line.split("="); // the parts are split over an equal sign
+            if (parts.length != 2) // 2 parts are needed to make sure there is a value and variable
+            {
+               throw new IOException("Invalid format in config file: " + line);
+            }
+
+            configValues.put(parts[0], parts[1]); // uses the left and right of the line with the variable then value
+         } // while (myReader.hasNextLine())
+      } // try (Scanner myReader = new Scanner(myObj))
+
+      System.out.println(configValues);
+      lambda = Double.parseDouble(configValues.get("lambda"));
+      isTraining = Boolean.parseBoolean(configValues.get("isTraining"));
+      numInputAct = Integer.parseInt(configValues.get("numInputAct"));
+      numHiddenFirstAct = Integer.parseInt(configValues.get("numHiddenFirstAct"));
+      numHiddenSecondAct = Integer.parseInt(configValues.get("numHiddenSecondAct"));
+      numConnectAct = Integer.parseInt(configValues.get("numConnectAct"));
+      numLayers = Integer.parseInt(configValues.get("numLayers"));
+      numOutputAct = Integer.parseInt(configValues.get("numOutputAct"));
+      avgErrorCutoff = Double.parseDouble(configValues.get("avgErrorCutoff"));
+      lowRand = Double.parseDouble(configValues.get("lowRand"));
+      highRand = Double.parseDouble(configValues.get("highRand"));
+      maxIter = Double.parseDouble(configValues.get("maxIter"));
+      numTestCases = Integer.parseInt(configValues.get("numTestCases"));
+      truthTableFile = configValues.get("truthTableFile");
+      weightsFile = configValues.get("weightsFile");
+      WEIGHT_MODE = configValues.get("WEIGHT_MODE");
+   } // public void configureNetwork(String configFile) throws IOException
+
+   /**
+    * Sets the truth table by using the file passed and reading it the going through and taking the parts for each of the
+    * spaces to fill the truth table out. The truth table is adjusted depending on the network and how many inputs
+    * and outputs and an exception is thrown if the parts of the truth table don't match or are less than that of the
+    * number of inputs and outputs.
+    */
+   public void setTruthTable() throws IOException
+   {
+      FileReader fileReader = new FileReader(truthTableFile);
+      Scanner scanner = new Scanner(fileReader);
+
+      for (int i=0; i < numTestCases; i++)
+      {
+         String truthTableLine = scanner.nextLine();
+         String[] parts = truthTableLine.split(" "); // the parts are split over spaces
+
+         if (parts.length < numInputAct + numOutputAct)
+         {
+            throw new IOException("Truth table line does not match config file " + truthTableLine);
+         }
+
+         for (int inputsLen = 0; inputsLen < numInputAct; inputsLen++)
+         {
+            truthTable[i][inputsLen] = Double.parseDouble(parts[inputsLen]);
+         }
+
+         for (int outputLen = 0; outputLen < numOutputAct; outputLen++)
+         {
+            expectedVals[i][outputLen] = Double.parseDouble(parts[numInputAct + outputLen]);
+         }
+      } // for (int i=0; i < numTestCases; i++)
+   } //public void setTruthTable() throws IOException
+
+
+   /**
+    * Initializes memory for the arrays in the network. This method sets up memory for the truth table, a variable max
+    * which holds the maximum size to make sure there is no problem storing anything. Then there is an array for all
+    * activations and an array for all weights.Then expected values for the inputs given and actual outputs.
+    * If the network is training, memory is also initialized for psi values and the thetas.
+    */
+
+   public void allocateMemory()
+   {
+      truthTable = new double[numTestCases][numTestCases - 1];
+
+      int max = Math.max(Math.max(Math.max(numInputAct,numHiddenFirstAct ),numHiddenSecondAct),numOutputAct);
+      a = new double[numLayers][max];
+
+      weights = new double[numConnectAct][max][max];
+
+      expectedVals = new double[numTestCases][numOutputAct];
+      actualVals = new double[numTestCases][numOutputAct];
+
+      if (isTraining)
+      {
+         psiValues =  new double[numConnectAct][max];
+
+         thetas = new double[numConnectAct][max];
+      } // if (isTraining)
+   } // public void allocateMemory()
+
+   /**
+    * Saves the weights of the neural network to a file. Writes the number of input, hidden, and output activation
+    * layers to the file, followed by the weights connecting the input layer to the first hidden layer, weights for first
+    * hidden layer to second hidden layer, and the weights connecting the hidden layer to the output layer.
+    * Each weight is written to a new line in the file. Upon completion, the FileWriter is closed.
+    *
+    */
+   public void saveWeights() throws IOException
+   {
+      FileWriter writer = new FileWriter(weightsFile);
+
+      writer.write("numInputAct=" + numInputAct + "\n");
+      writer.write("numHiddenFirstAct=" + numHiddenFirstAct + "\n");
+      writer.write("numHiddenSecondAct=" + numHiddenSecondAct + "\n");
+      writer.write("numOutputAct=" + numOutputAct + "\n");
+
+      int n = INPUT_LAYER;
+      for (int m = 0; m < numInputAct; m++)
+      {
+         for (int k = 0; k < numHiddenFirstAct; k++)
+         {
+            writer.write(String.valueOf(weights[n][m][k]) + "\n");
+
+         } // for (int k = 0; k < numHiddenFirstAct; k++)
+      } // for (int m = 0; m < numInputAct; m++)
+
+      n = HIDDEN_FIRST_LAYER;
+      for (int k = 0; k < numHiddenFirstAct; k++)
+      {
+         for (int j = 0; j < numHiddenSecondAct; j++)
+         {
+            writer.write(String.valueOf(weights[n][k][j]) + "\n");
+
+         } // for (int j = 0; j < numHiddenSecondAct; j++)
+      } // for (int k = 0; k < numHiddenFirstAct; k++)
+
+      n = HIDDEN_SECOND_LAYER;
+      for (int j = 0; j < numHiddenSecondAct; j++)
+      {
+         for (int i = 0; i < numOutputAct; i++)
+         {
+            writer.write(String.valueOf(weights[n][j][i]) + "\n");
+         } // for (int i = 0; i < numOutputAct; i++)
+      } // for (int j = 0; j < numHiddenSecondAct; j++)
+      writer.close();
+   } // public void saveWeights() throws IOException
+
+
+   /**
+    * Loads the weights by first Reading the weights file and checking the number of input layers, first hidden layer,
+    * second hidden layer and output layers to make sure they are consistent with the numbers from the network or an
+    * error is thrown.It then goes through and sets the values for the weights from the input to hidden layers, first hidden
+    * layer and second hidden layer, then second hidden layer to output layers and then the reader is closed.
+    */
+   public void loadWeights() throws IOException
+   {
+      FileReader fileReader = new FileReader(weightsFile);
+      Scanner scanner = new Scanner(fileReader);
+
+      int numInputActTest = Integer.parseInt(scanner.nextLine().split("=")[1]); //wants the value of the input
+      int numHiddenFirstActTest = Integer.parseInt(scanner.nextLine().split("=")[1]); // wants value of hidden
+      int numHiddenSecondActTest = Integer.parseInt(scanner.nextLine().split("=")[1]); // wants value of hidden
+      int numOutputActTest = Integer.parseInt(scanner.nextLine().split("=")[1]); // wants value of output
+
+      if (numInputActTest != numInputAct)
+      {
+         throw new IOException("This isn't consistent with input from config file");
+      }
+
+      if (numHiddenFirstActTest != numHiddenFirstAct)
+      {
+         throw new IOException("This isn't consistent with hidden from config file");
+      }
+      if (numHiddenSecondActTest != numHiddenSecondAct)
+      {
+         throw new IOException("This isn't consistent with hidden from config file");
+      }
+
+      if (numOutputActTest != numOutputAct)
+      {
+         throw new IOException("This isn't consistent with output from config file");
+      }
+
+      int n = INPUT_LAYER;
+      for (int m = 0; m < numInputAct; m++)
+      {
+         for (int k = 0; k < numHiddenFirstAct; k++)
+         {
+            weights[n][m][k] = Double.parseDouble(scanner.nextLine());
+         } // for (int k = 0; k < numHiddenFirstAct; k++)
+      } // for (int m = 0; m < numInputAct; m++)
+
+      n = HIDDEN_FIRST_LAYER;
+      for (int k = 0; k < numHiddenFirstAct; k++)
+      {
+         for (int j = 0; j < numHiddenSecondAct; j++)
+         {
+            weights[n][k][j] =  Double.parseDouble(scanner.nextLine());
+         } // for (int j = 0; j < numHiddenSecondAct; j++)
+      } // for (int k = 0; k < numHiddenFirstAct; k++)
+
+      n = HIDDEN_SECOND_LAYER;
+      for (int j = 0; j < numHiddenSecondAct; j++)
+      {
+         for (int i = 0; i < numOutputAct; i++)
+         {
+            weights[n][j][i] =  Double.parseDouble(scanner.nextLine());
+         } // for (int i = 0; i < numOutputAct; i++)
+      } // for (int j = 0; j < numHiddenSecondAct; j++)
+
+      scanner.close();
+      fileReader.close();
+   } // public void loadWeights() throws IOException
+
+   /**
+    * This method sets the truth table by calling the setTruthTable() method then if the weight is set to "random"
+    * in the config file as weights mode, then the weights will randomly be set using the lowRand and highRand values.
+    * Otherwise, whatever values are set in the weights config files will be used.
+    */
+   public void populate() throws IOException
+   {
+      setTruthTable();
+
+      if ("random".equals(WEIGHT_MODE)) // check to see if random is the way it wanted to be implemented
+      {
+         int n = INPUT_LAYER;
+         for (int m = 0; m < numInputAct; m++)
+         {
+            for (int k = 0; k < numHiddenFirstAct; k++)
+            {
+               weights[n][m][k] = randomize(lowRand, highRand);
+            } // for (int k = 0; k < numHiddenFirstAct; k++)
+         } // for (int m = 0; m < numInputAct; m++)
+
+         n = HIDDEN_FIRST_LAYER;
+         for (int k = 0; k < numHiddenFirstAct; k++)
+         {
+            for (int j = 0; j < numHiddenSecondAct; j++)
+            {
+               weights[n][k][j] = randomize(lowRand, highRand);
+            } // for (int j = 0; j < numHiddenSecondAct; j++)
+         } //  for (int k = 0; k < numHiddenFirstAct; k++)
+
+         n = HIDDEN_SECOND_LAYER;
+         for (int j = 0; j < numHiddenSecondAct; j++)
+         {
+            for (int i = 0; i < numOutputAct; i++)
+            {
+               weights[n][j][i] = randomize(lowRand, highRand);
+            } // for (int i = 0; i < numOutputAct; i++)
+         } // for (int j = 0; j < numHiddenSecondAct; j++)
+
+      } // if ("random".equals(WEIGHT_MODE))
+      else
+      {
+         loadWeights();
+      }
+   } //public void populate() throws IOException
+
+   /**
+    * It takes parameters for the low and high values and gives random numbers which are assigned to weights in
+    * between that range for the truth table if the network is training.
+    */
+   public double randomize(double low, double high)
+   {
+      return low + Math.random() * (high - low);
+   } // public double randomize(double low, double high)
+
+
+   /**
+    * Echos the parameters for this network by printing out descriptions for the parameters that are given to it along
+    * with the network configuration, given based off of the input and hidden first, hidden second, and activation layer
+    * numbers. The parameters include the runtime training parameters if its training or just mentions that the model isn't
+    * training. Also says why training has stopped if it has.
+    */
+   public void echo()
+   {
+      System.out.println("Network Configuration: " + this.numInputAct + "-" + this.numHiddenFirstAct + "-" +
+            this.numHiddenSecondAct  + "-" + this.numOutputAct);
+
+      if (isTraining)
+      {
+         System.out.println("This model is training");
+         System.out.println("Runtime Training Parameters: ");
+
+         System.out.println("Random numbers range: " + this.lowRand + " - " + this.highRand);
+         System.out.println("Max iterations: " + this.maxIter);
+         System.out.println("Error threshold: " + this.avgErrorCutoff);
+         System.out.println("Lambda value: " + this.lambda);
+
+      } // if (isTraining)
+      else
+      {
+         System.out.println("This model is not training");
+      }
+   } //public void echo()
+
+
+   /**
+    * Is an activation function wrapper than can call various activation functions but currently is set to call
+    * the sigmoid function.
+    *
+    */
+   public double activationFunction(double x)
+   {
+      return sigmoid(x);
+   } // public double activationFunction(double x)
+
+   /**
+    * Uses the parameter x and calculates the sigmoid value and returns the result for that.
+    */
+   public double sigmoid(double x)
+   {
+      return 1.0 / (1.0 + Math.exp(-x));
+   } // public double sigmoid(double x)
+
+   /**
+    * A derivative of the activation function that we use for the network training
+    */
+   public double derivativeActivationFunction(double x)
+   {
+      return derivativesigmoid(x);
+   } // public double derivativeActivationFunction(double x)
+
+   /**
+    * Uses the parameter x and calculates the derivative sigmoid value and returns the result for that.
+    */
+   public double derivativesigmoid(double x)
+   {
+      double sig = sigmoid(x);
+      return sig * (1.0 - sig);
+   } // public double derivativesigmoid(double x)
+
+
+   /**
+    * This method goes through the train process for the network then it runs the network. It takes the network
+    * configuration and uses the randomly assigned weights for the truth table or the given weights to train the network
+    * by first setting the input then calls the runForTraining() method to evaluate then calculates the weights and applies
+    * them and then runs each test case. It also calculates all the errors and comes up with a total error as well.
+    * It continues doing this until either the amount of iterations of the training surpass the max iterations or
+    * the average error for the running of the network is under the average error cutoff. It gives a reason for why
+    * training was ended and the training exit information. If the network is not training, then it will go through
+    * all the test cases and just run the network.
+    */
+   public void train()
+   {
+      boolean done = false;
+
+      while (!done)
+      {
+         double totalError = 0.0;
+
+         for (int iTruthTable = 0; iTruthTable < numTestCases; iTruthTable++)
+         {
+            setupInputActivation(iTruthTable); // 1. Set Input
+
+            runForTraining(iTruthTable); // 2. Evaluate
+
+            calculateAndApplyDeltaWeights(); // 3. Weights
+
+            runTestCase(iTruthTable);
+
+
+            double error = 0.0;
+            for (int i = 0; i < numOutputAct; i++)
+            {
+               error = 0.5 * (expectedVals[iTruthTable][i] - a[OUTPUT_LAYER][i]) *
+                     (expectedVals[iTruthTable][i] - a[OUTPUT_LAYER][i]);  //applying error function
+               totalError += error;
+            } // for for (int i = 0; i < numOutputAct; i++)
+         } // for (int iTruthTable = 0; iTruthTable < numTestCases; iTruthTable++)
+         avgError = totalError / (double) (numTestCases);
+         iter++;                                                   //record iterations before end of cycle
+
+         if (avgError <= avgErrorCutoff)
+         {
+            done = true;
+         }
+
+         if (iter >= maxIter)
+         {
+            done = true;
+         }
+      } // while (!done)
+   } // public void train()
+
+   /**
+    * Takes an index from the truth table ad goes through the hidden layers and resets the thetas and then goes through
+    * input layers to set the thetas to the input activations multiplied by the values of the weights for the input
+    * to the hidden layers. The hidden activations are then called with the activation function and the values of the
+    * thetas calculated from second hidden layer. It also calculates the hidden to output values.
+    */
+   private void runForTraining(int iTruthTable)
+   {
+      double smallOmega = 0.0;
+
+      int n = INPUT_LAYER;
+      for (int k = 0; k < numHiddenFirstAct; k++)
+      {
+         thetas[n][k] = 0.0; // reset thetas
+
+         for (int m = 0; m < numInputAct; m++)
+         {
+            thetas[n][k] += a[n][m] * weights[n][m][k];
+         } // for (int k = 0; k < numInputAct; k++)
+
+         a[n+1][k] = activationFunction(thetas[n][k]);
+      } // for (int k = 0; k < numHiddenFirstAct; k++)
+
+
+      n = HIDDEN_FIRST_LAYER;
+      for (int j = 0; j < numHiddenSecondAct; j++)
+      {
+         thetas[n][j] = 0.0; // resets thetas
+         for (int k = 0; k < numHiddenFirstAct; k++)
+         {
+            thetas[n][j] += a[n][k] * weights[n][k][j];
+         } // for (int k = 0; k < numHiddenFirstAct; k++)
+
+         a[n+1][j] = activationFunction(thetas[n][j]);
+
+      } // for (int j = 0; j < numOutputAct; j++)
+
+      n = HIDDEN_SECOND_LAYER;
+      for (int i = 0; i < numOutputAct; i++)
+      {
+         thetas[n][i] = 0.0; // resets thetas
+         for (int j = 0; j < numHiddenSecondAct; j++)
+         {
+            thetas[n][i] += a[n][j] * weights[n][j][i];
+         } // for (int j = 0; j < numHiddenSecondAct; j++)
+
+         a[n+1][i] = activationFunction(thetas[n][i]);
+         smallOmega = expectedVals[iTruthTable][i] - a[n+1][i];
+         psiValues[HIDDEN_SECOND_LAYER][i] = smallOmega * derivativeActivationFunction(thetas[n][i]);
+      } // for (int i = 0; i < numOutputAct; i++)
+   } // private void runForTraining(int iTruthTable)
+
+
+   /**
+    * Calculates the delta weights by using the index from the truth table going through the hidden and output
+    * layers and following the design document for setting the values of the weight for the hidden to output layers and
+    * input to hidden layers using omegas and psis.
+    */
+   private void calculateAndApplyDeltaWeights()
+   {
+      double omega = 0.0;
+      double l_partialewkj = 0.0;
+      double l_deltaWeights = 0.0;
+
+      int n = HIDDEN_SECOND_LAYER;
+      for (int j = 0; j < numHiddenSecondAct; j++)
+      {
+         omega = 0.0;
+
+         for (int i = 0; i < numOutputAct; i++)
+         {
+            omega += psiValues[n][i] * weights[n][j][i];
+
+            l_partialewkj = -a[n][j] * psiValues[n][i];
+            l_deltaWeights = -lambda * l_partialewkj;
+
+            weights[n][j][i] += l_deltaWeights;
+         } // for (int i = 0; i < numOutputAct; i++)
+
+         psiValues[n-1][j] = omega * derivativeActivationFunction(thetas[n-1][j]);
+      } // for (int j = 0; j < numHiddenSecondAct; j++)
+
+      for (int k = 0; k < numHiddenFirstAct; k++)
+      {
+         omega = 0.0;
+         n = HIDDEN_FIRST_LAYER;
+
+         for (int j = 0; j < numHiddenSecondAct; j++)
+         {
+            omega += psiValues[n][j] * weights[n][k][j];
+
+            l_partialewkj = -a[n][k] * psiValues[n][j];
+            l_deltaWeights = -lambda * l_partialewkj;
+
+            weights[n][k][j] += l_deltaWeights;
+         } // for (int j = 0; j < numHiddenSecondAct; j++)
+
+         psiValues[n-1][k] = omega * derivativeActivationFunction(thetas[n-1][k]);
+
+         n = INPUT_LAYER;
+         for (int m = 0; m < numInputAct; m++)
+         {
+            l_partialewkj = -a[n][m] * psiValues[n][k];
+            l_deltaWeights = -lambda * l_partialewkj;
+
+            weights[n][m][k] += l_deltaWeights;
+         } // for (int m = 0; m < numInputAct; m++)
+      } // for (int k = 0; k < numHiddenFirstAct; k++)
+   } //private void calculateAndApplyDeltaWeights()
+
+   /**
+    * Runs the network with the truth table cases and putting it through the method runTestCase().
+    */
+   public void run()
+   {
+      for (int iTruthTable = 0; iTruthTable < numTestCases; iTruthTable++)
+      {
+         setupInputActivation(iTruthTable);
+         runTestCase(iTruthTable);
+      } // for (int iTruthTable = 0; iTruthTable < numTestCases; iTruthTable++)
+   } // public void run()
+
+   /**
+    * With each of the test cases it takes the input activation values from the truth table, then calculates the hidden
+    * activations and then the output activations using the activation functions.
+    */
+   private void runTestCase(int iTruthTable)
+   {
+
+      int n = INPUT_LAYER;
+      for (int k = 0; k < numHiddenFirstAct; k++)
+      {
+         double theta = 0;
+         for (int m = 0; m < numInputAct; m++)
+         {
+            theta += a[n][m] * weights[n][m][k];
+         } // for (int m = 0; m < numInputAct; m++)
+         a[n+1][k] = activationFunction(theta);
+
+      } // for (int k = 0; k < numHiddenFirstAct; k++)
+
+      n = HIDDEN_FIRST_LAYER;
+      for (int j = 0; j < numHiddenSecondAct; j++)
+      {
+         double theta = 0.0;
+
+         for (int k = 0; k < numHiddenFirstAct; k++)
+         {
+            theta += a[n][k] * weights[n][k][j];
+         } //  for (int k = 0; k < numHiddenFirstAct; k++)
+
+         a[n+1][j] = activationFunction(theta);
+      } // for (int j = 0; j < numHiddenSecondAct; j++)
+
+      n = HIDDEN_SECOND_LAYER;
+      for (int i = 0; i < numOutputAct; i++)
+      {
+         double theta = 0;
+
+         for (int j = 0; j < numHiddenSecondAct; j++)
+         {
+            theta += a[n][j] * weights[n][j][i];
+         } // for (int j = 0; j < numHiddenSecondAct; j++)
+
+         a[n+1][i] = activationFunction(theta);
+         actualVals[iTruthTable][i] = a[n+1][i];
+      } // for (int i = 0; i < numOutputAct; i++)
+   } // private void runTestCase(int iTruthTable)
+
+   /**
+    * Fills in the inputs in the activations array from the truth table read in the config file.
+    */
+   private void setupInputActivation(int iTruthTable)
+   {
+      int n = INPUT_LAYER;
+      for (int m = 0; m < numInputAct; m++)
+      {
+         a[n][m] = truthTable[iTruthTable][m];
+      }
+   } //private void setupInputActivation(int iTruthTable)
+
+   /**
+    * Reports all the information from the network at the end from the test cases the final F0 values for each test case
+    * the expected values the calculated errors and is formatted to be understood clearly. It also lists the average
+    * error and the number of iterations and the time taken at the bottom.
+    */
+   public void reportFinalOutputs()
+   {
+
+      if (avgError <= avgErrorCutoff)
+      {
+         System.out.println("Training is ending because the average error is less than the cutoff:" + avgError);
+      }
+
+      if (iter >= maxIter)
+      {
+         System.out.println("Training is ending because the iterations have gotten to the max iterations:" + iter);
+      }
+
+      System.out.println("\nFinal F0 values for each test case and their expected values:");
+
+      for (int testIndex = 0; testIndex < numTestCases; testIndex++)
+      {
+
+         System.out.print("Test case " + (testIndex + 1) + ": Input (");
+
+
+         for (int inputIndex = 0; inputIndex < numInputAct; inputIndex++)
+         {
+            System.out.print(" " + String.format("%.0f", truthTable[testIndex][inputIndex]) + " ");
+
+         }
+         System.out.println(")");
+
+         for (int i = 0; i < numOutputAct; ++i)
+         {
+            System.out.printf("  Expected F[%s] = %.0f, Actual F[%s] = %.17f\n", i, expectedVals[testIndex][i], i, actualVals[testIndex][i]);
+         }
+
+      } // for (int testIndex = 0; testIndex < numTestCases; testIndex++)
+
+      System.out.println("Num of Iterations: " + iter);
+      System.out.println("Avg Error: " + avgError);
+
+      System.out.println("Time Taken: " + (endTime-startTime) + "ms");
+
+   } // public void reportFinalOutputs()
+
+
+   /**
+    * Initializes a neural network, configures it based on the provided
+    * command-line arguments or default configuration file, and either trains the network or runs it directly
+    * depending on the configured mode. If training mode is selected, the network is trained until completion, through
+    * the training, the running, and the saving of the weights with runtime training parameters and exit information
+    * displayed. If running mode is selected, the network runs using pre-configured weights. Final outputs, including
+    * input values, expected outputs, actual outputs, and the number of iterations, are reported. The execution time of
+    * the process is also displayed.
+    */
+   public static void main(String[] args) throws IOException
+   {
+      NetworkABCD_Submitted net = new NetworkABCD_Submitted();
+
+      String configFile = "default.cfg"; //if no file is input
+
+      if (args.length > 0)
+      {
+         configFile = args[0];
+      }
+
+      System.out.println("Using config file " + configFile);
+      System.out.println(System.getProperty("user.dir"));
+      net.configureNetwork(configFile);
+      net.echo();
+      net.allocateMemory();
+      net.populate();
+      startTime= System.currentTimeMillis();
+
+      if (net.isTraining)
+      {
+         net.train();
+         net.run();
+         net.saveWeights();
+      }
+      else
+      {
+         net.run();
+      }
+      endTime = System.currentTimeMillis();
+
+      net.reportFinalOutputs();
+
+   } // public static void main(String[] args) throws IOException
+} // public class Network
